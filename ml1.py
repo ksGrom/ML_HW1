@@ -6,6 +6,7 @@
 from fastapi import FastAPI
 from fastapi import File, UploadFile
 from fastapi.responses import StreamingResponse
+from sklearn import impute
 from pydantic import BaseModel
 from typing import List
 import pickle
@@ -42,7 +43,8 @@ class Items(BaseModel):
     objects: List[Item]
 
 
-VehiclePriceModel = namedtuple('VehiclePriceModel', ['model', 'normalizer', 'one_hot_encoder'])
+VehiclePriceModel = namedtuple('VehiclePriceModel',
+                               ['model', 'normalizer', 'one_hot_encoder', 'imputer'])
 
 with open('VehiclePriceModel.pickle', 'rb') as f:
     model = VehiclePriceModel(**pickle.load(f))
@@ -137,6 +139,7 @@ def predict(item_list: Union[list, pd.DataFrame]) -> list:
     df = pd.DataFrame(item_list) if isinstance(item_list, list) else item_list
     df = get_df_with_parsed_features(df)
     df_num = df.select_dtypes(include=["number"])
+    df_num = model.imputer.transform(df_num)
     df_cat = df.select_dtypes(include=["category"])
     df_ohe = model.one_hot_encoder.transform(df_cat).toarray()
     df_ohe = np.concatenate([df_num, df_ohe], axis=1)
@@ -160,12 +163,11 @@ def predict_items(items: List[Item]) -> List[float]:
 @app.post("/predict_csv")
 def predict_csv(file: UploadFile = File(...)):
     df = pd.read_csv(BytesIO(file.file.read()), encoding="utf8")
-    new_df = predict(df)
-    # for i in range(100):
-    #     print(df)
-    # export_media_type = 'text/csv'
-    # export_headers = {
-    #     "Content-Disposition": "attachment; filename={prediction}.csv"
-    # }
-    # return StreamingResponse(csv_file_binary, headers=export_headers, media_type=export_media_type)
-    return 0
+    new_df = pd.concat([df, pd.DataFrame({"prediction": predict(df)})], axis=1)
+    f = BytesIO()
+    new_df.to_csv(f, index=False)
+    export_media_type = 'text/csv'
+    export_headers = {
+        "Content-Disposition": "attachment; filename=prediction.csv"
+    }
+    return StreamingResponse(f, headers=export_headers, media_type=export_media_type)
