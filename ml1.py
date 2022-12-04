@@ -10,7 +10,7 @@ from sklearn import impute
 from pydantic import BaseModel
 from typing import List
 import pickle
-from io import BytesIO
+from io import BytesIO, StringIO
 from collections import namedtuple
 import re
 import pandas as pd
@@ -164,8 +164,8 @@ def predict_items(items: List[Item]) -> List[float]:
 def predict_csv(file: UploadFile = File(...)):
     df = pd.read_csv(BytesIO(file.file.read()), encoding="utf8")
     new_df = pd.concat([df, pd.DataFrame({"prediction": predict(df)})], axis=1)
-    f = BytesIO()
-    new_df.to_csv(f, index=False)
+    csv = new_df.to_csv(index=False)
+    f = StringIO(csv)
     export_media_type = 'text/csv'
     export_headers = {
         "Content-Disposition": "attachment; filename=prediction.csv"
