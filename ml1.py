@@ -1,3 +1,8 @@
+"""
+Важно!
+Версия scikit-learn 1.0.2.
+Для более новой версии прилагаемый pickle-файл не подходит.
+"""
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
@@ -117,20 +122,28 @@ def get_df_with_parsed_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-@app.post("/predict_item")
-def predict_item(item: Item) -> float:
-    df = pd.DataFrame([item.dict()])
+def predict(item_list: list) -> list:
+    df = pd.DataFrame(item_list)
     df = df.astype({'fuel': 'category', 'seller_type': 'category',
                     'transmission': 'category', 'owner': 'category',
                     'seats': 'category'})
     df = get_df_with_parsed_features(df)
     df_num = df.select_dtypes(exclude=["category"]).drop(['selling_price', 'name'], axis=1)
     df_cat = df.select_dtypes(include=["category"])
-    item_ohe = model.one_hot_encoder.transform(df_cat).toarray()
-    item_ohe = np.concatenate([df_num, item_ohe], axis=1)
-    item_ohe_scaled = model.normalizer.transform(item_ohe)
-    return model.model.predict(item_ohe_scaled)[0]
+    df_ohe = model.one_hot_encoder.transform(df_cat).toarray()
+    df_ohe = np.concatenate([df_num, df_ohe], axis=1)
+    df_ohe_scaled = model.normalizer.transform(df_ohe)
+    return list(model.model.predict(df_ohe_scaled))
+
+
+@app.post("/predict_item")
+def predict_item(item: Item) -> float:
+    return predict([item.dict()])[0]
+
 
 @app.post("/predict_items")
 def predict_items(items: List[Item]) -> List[float]:
-    return ...
+    item_list = []
+    for item in items:
+        item_list.append(item.dict())
+    return predict(item_list)
