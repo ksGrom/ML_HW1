@@ -4,9 +4,12 @@
 Для более новой версии прилагаемый pickle-файл не подходит.
 """
 from fastapi import FastAPI
+from fastapi import File, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List
 import pickle
+from io import BytesIO
 from collections import namedtuple
 import re
 import pandas as pd
@@ -119,16 +122,21 @@ def get_df_with_parsed_features(df: pd.DataFrame) -> pd.DataFrame:
     df.insert(df.columns.get_loc('torque')+1, 'max_torque_rpm', None)
     df['max_torque_rpm'] = df['torque'].apply(lambda x: parse_torque(x)[1])
     df['torque'] = df['torque'].apply(lambda x: parse_torque(x)[0])
-    return df
-
-
-def predict(item_list: list) -> list:
-    df = pd.DataFrame(item_list)
     df = df.astype({'fuel': 'category', 'seller_type': 'category',
                     'transmission': 'category', 'owner': 'category',
                     'seats': 'category'})
+    numeric_cols = ['year', 'km_driven', 'mileage', 'engine',
+                    'max_power', 'torque', 'max_torque_rpm']
+    if 'selling_price' in df.columns:
+        df = df.drop(['selling_price'], axis=1)
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
+    return df
+
+
+def predict(item_list: Union[list, pd.DataFrame]) -> list:
+    df = pd.DataFrame(item_list) if isinstance(item_list, list) else item_list
     df = get_df_with_parsed_features(df)
-    df_num = df.select_dtypes(exclude=["category"]).drop(['selling_price', 'name'], axis=1)
+    df_num = df.select_dtypes(include=["number"])
     df_cat = df.select_dtypes(include=["category"])
     df_ohe = model.one_hot_encoder.transform(df_cat).toarray()
     df_ohe = np.concatenate([df_num, df_ohe], axis=1)
@@ -147,3 +155,17 @@ def predict_items(items: List[Item]) -> List[float]:
     for item in items:
         item_list.append(item.dict())
     return predict(item_list)
+
+
+@app.post("/predict_csv")
+def predict_csv(file: UploadFile = File(...)):
+    df = pd.read_csv(BytesIO(file.file.read()), encoding="utf8")
+    new_df = predict(df)
+    # for i in range(100):
+    #     print(df)
+    # export_media_type = 'text/csv'
+    # export_headers = {
+    #     "Content-Disposition": "attachment; filename={prediction}.csv"
+    # }
+    # return StreamingResponse(csv_file_binary, headers=export_headers, media_type=export_media_type)
+    return 0
